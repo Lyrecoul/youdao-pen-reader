@@ -1,6 +1,6 @@
-#电子书阅读器 v6.1.0
+# 电子书阅读器 v6.1.0
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![许可证: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 一款专为词典笔设计的小说阅读器插件，支持本地 `.txt` 小说阅读，并提供局域网网页上传功能，让你轻松在词典笔上看小说。
 
@@ -22,9 +22,9 @@
 - 三种字号可选：小（13px）、中（15px）、大（18px）
 - 三种行距模式：紧凑、标准、宽松
 - 七种阅读主题：默认、白色、黄色、绿色、黑色、粉色、蓝色
-- 支持自动翻页，可自定义间隔秒数（1~999秒）
+- 支持自动翻页，可自定义间隔秒数（1~999 秒）
 
-### 交互操作
+###交互操作
 
 - 点击屏幕左 1/3 区域：上一页
 - 点击屏幕右 1/3 区域：下一页
@@ -44,7 +44,7 @@
 - 首次安装打开应用会自动弹出赞赏弹窗
 - 之后进入应用不再自动弹出，但可随时手动点击按钮查看
 
-### 局域网上传
+###局域网上传
 
 - - 内置 HTTP 上传服务器（端口 8088）
 - - 支持 Python3 和 Node.js 两种运行时（自动检测）
@@ -52,7 +52,7 @@
 - - 上传的文件自动保存到 `/userdisk/Music/` 目录
 - - 文件名自动清理特殊字符，确保兼容性
 
-##文件结构
+## 文件结构
 
 ```
 novel-reader/
@@ -60,15 +60,15 @@ novel-reader/
 ├── MenuButton.qml # 菜单按钮组件
 ├── metadata.json # 插件元数据（ID、版本、作者等）
 ├── libshell_plugin.so  # Shell 插件原生库（用于启动上传服务）
-├── start-uploader.sh   # 上传服务启动脚本（自动检测 python3/node）
-├── uploader.py         # Python 版上传 HTTP 服务器
+├── start-uploader.sh # 上传服务启动脚本（自动检测 python3/node）
+├── uploader.py # Python 版上传 HTTP 服务器
 ├── uploader.js         # Node.js 版上传 HTTP 服务器
-├── Thanks.PNG          # 赞赏二维码图片
-├── LICENSE             # GPL v3 开源协议
-└── README.md           # 说明文档
+├── Thanks.PNG # 赞赏二维码图片
+├── LICENSE # GPL v3 开源协议
+└── README.md # 说明文档
 ```
 
-##适用环境
+## 适用环境
 
 - 已安装或使用 PenMods 修改过的词典笔系统
 - 插件系统支持 QML 插件加载
@@ -77,7 +77,7 @@ novel-reader/
 
 ## 安装方式
 
-###方法一：通过 PenMods 插件目录安装
+### 方法一：通过 PenMods 插件目录安装
 
 将整个 `novel-reader` 文件夹复制到 PenMods 的插件目录下：
 
@@ -269,7 +269,7 @@ http://192.168.1.23:8088
 - 输入百分比：精确跳转到指定百分比位置
 - 章节列表：自动识别小说中的章节标题，点击即可跳转
 
-## 技术说明
+##技术说明
 
 ### 技术栈
 
@@ -295,7 +295,7 @@ http://192.168.1.23:8088
 - 文件保存到 `/userdisk/Music/` 目录
 - 文件名自动清理特殊字符，确保兼容性
 
-### 数据存储
+###数据存储
 
 阅读器使用 Qt LocalStorage（SQLite）存储以下数据：
 
