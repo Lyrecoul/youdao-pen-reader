@@ -1,4 +1,4 @@
-# 电子书阅读器 v6.1.0
+#电子书阅读器 v6.1.0
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -46,19 +46,19 @@
 
 ### 局域网上传
 
-- 内置 HTTP 上传服务器（端口 8088）
-- 支持 Python3 和 Node.js 两种运行时（自动检测）
-- 手机/电脑浏览器打开即用，无需安装额外 App
-- 上传的文件自动保存到 `/userdisk/Music/` 目录
-- 文件名自动清理特殊字符，确保兼容性
+- - 内置 HTTP 上传服务器（端口 8088）
+- - 支持 Python3 和 Node.js 两种运行时（自动检测）
+- - 手机/电脑浏览器打开即用，无需安装额外 App
+- - 上传的文件自动保存到 `/userdisk/Music/` 目录
+- - 文件名自动清理特殊字符，确保兼容性
 
-## 文件结构
+##文件结构
 
 ```
 novel-reader/
-├── main.qml            # 主界面 QML 文件（阅读器核心逻辑与 UI）
-├── MenuButton.qml      # 菜单按钮组件
-├── metadata.json       # 插件元数据（ID、版本、作者等）
+├── main.qml # 主界面 QML 文件（阅读器核心逻辑与 UI）
+├── MenuButton.qml # 菜单按钮组件
+├── metadata.json # 插件元数据（ID、版本、作者等）
 ├── libshell_plugin.so  # Shell 插件原生库（用于启动上传服务）
 ├── start-uploader.sh   # 上传服务启动脚本（自动检测 python3/node）
 ├── uploader.py         # Python 版上传 HTTP 服务器
@@ -68,22 +68,24 @@ novel-reader/
 └── README.md           # 说明文档
 ```
 
-## 适用环境
+##适用环境
 
-- 已安装或使用 PenMods 修改过后的词典笔系统
+- 已安装或使用 PenMods 修改过的词典笔系统
 - 插件系统支持 QML 插件加载
 - 如需使用局域网上传功能，词典笔系统内需要有 `python3` 或 `node`
-- 词典笔和手机/电脑需要连接到同一个局域网 Wi-Fi
+- 词典笔和手机/电脑需连接至同一局域网 Wi-Fi
 
 ## 安装方式
 
-### 方式一：通过 PenMods 插件目录安装
+###方法一：通过 PenMods 插件目录安装
 
-将整个 `novel-reader` 文件夹放到 PenMods 的插件目录下：
+将整个 `novel-reader` 文件夹复制到 PenMods 的插件目录下：
 
 ```
 /userdisk/PenMods/plugins/novel-reader/
 ```
+
+安装完成后，在插件管理中即可打开
 
 ### 方式二：通过扩展目录安装
 
@@ -93,7 +95,7 @@ novel-reader/
 /userdisk/youdaoExt/ext/novel-reader/
 ```
 
-安装完成后，重启词典笔或重新加载插件列表即可看到"电子书阅读器"。
+安装完成后，在ai助手中即可通过输入名称进行打开
 
 ## 小说默认目录
 
@@ -169,7 +171,7 @@ http://192.168.1.23:8088
 
 #### 查看词典笔 IP
 
-一般可以在词典笔的 Wi-Fi 设置里查看当前连接网络的 IP 地址。常见格式类似：
+通常可以在词典笔的 Wi-Fi 设置中查看当前连接网络的 IP 地址。常见的格式类似于：
 
 ```
 192.168.1.23
