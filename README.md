@@ -95,7 +95,7 @@ novel-reader/
 /userdisk/youdaoExt/ext/novel-reader/
 ```
 
-安装完成后，在ai助手中即可通过输入名称进行打开
+安装完成后，在ai助手中输入应用名称即可打开
 
 ## 小说默认目录
 
