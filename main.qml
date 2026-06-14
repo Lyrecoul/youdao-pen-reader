@@ -31,6 +31,10 @@ Rectangle {
     property string themeName: "默认"
     property bool autoScroll: false
     property int autoScrollSeconds: 2
+    property bool animating: false
+    // 翻页动画方向：1=下一页（右滑入），-1=上一页（左滑入）
+    property int turnDirection: 0
+    property int pendingLine: -1
 
     property string activePanel: ""
     property string homeMode: "home"
@@ -438,6 +442,16 @@ Rectangle {
     }
 
     function returnToShelf() {
+        // 取消正在进行的翻页动画
+        if (animating) {
+            pageSlideAnim.stop();
+            pageTurnOverlay.visible = false;
+            pageTurnOverlay.x = 0;
+            animating = false;
+            turnDirection = 0;
+            pendingLine = -1;
+        }
+
         var oldUrl = currentUrl;
         var oldName = fileName;
         var oldLine = currentLine;
@@ -469,6 +483,16 @@ Rectangle {
     }
 
     function returnToHome() {
+        // 取消正在进行的翻页动画
+        if (animating) {
+            pageSlideAnim.stop();
+            pageTurnOverlay.visible = false;
+            pageTurnOverlay.x = 0;
+            animating = false;
+            turnDirection = 0;
+            pendingLine = -1;
+        }
+
         var oldUrl = currentUrl;
         var oldName = fileName;
         var oldLine = currentLine;
@@ -502,6 +526,16 @@ Rectangle {
     function loadFile(url) {
         if (!url)
             return;
+
+        // 取消正在进行的翻页动画
+        if (animating) {
+            pageSlideAnim.stop();
+            pageTurnOverlay.visible = false;
+            pageTurnOverlay.x = 0;
+            animating = false;
+            turnDirection = 0;
+            pendingLine = -1;
+        }
 
         // 先保存当前书籍的阅读进度，避免切换书籍时丢失
         if (currentUrl !== "" && currentUrl !== url) {
@@ -582,19 +616,70 @@ Rectangle {
     }
 
     function nextPage() {
-        if (currentLine < maxStartLine()) {
-            currentLine = Math.min(currentLine + getLinesPerPage(), maxStartLine());
-            saveProgress();
-        } else {
+        if (animating) return;
+        var maxLine = maxStartLine();
+        if (currentLine >= maxLine) {
             autoScroll = false;
+            return;
         }
+
+        var newLine = Math.min(currentLine + getLinesPerPage(), maxLine);
+        if (currentLine === newLine) return;
+
+        // 临时切换到新行计算新页文本，再恢复以保持 contentText 不变
+        var oldLine = currentLine;
+        currentLine = newLine;
+        pageTurnText.text = getPageText();
+        currentLine = oldLine;
+
+        // 设置覆盖层从右侧滑入
+        turnDirection = 1;
+        turnShadow.anchors.left = turnShadow.parent.left;
+        turnShadow.anchors.right = undefined;
+        turnShadow.color = Qt.rgba(0, 0, 0, 0);
+        pageTurnOverlay.x = readerPage.width;
+        pageTurnOverlay.visible = true;
+        animating = true;
+        pendingLine = newLine;
+
+        pageSlideAnim.from = readerPage.width;
+        pageSlideAnim.to = 0;
+        pageSlideAnim.start();
+
+        // 内存中更新进度（数据库由防抖定时器写入）
+        Storage.updateProgressMemory(progressStore, currentUrl, fileName, newLine, lines.length);
+        flushDebounceTimer.restart();
     }
 
     function prevPage() {
-        if (currentLine > 0) {
-            currentLine = Math.max(0, currentLine - getLinesPerPage());
-            saveProgress();
-        }
+        if (animating) return;
+        if (currentLine <= 0) return;
+
+        var newLine = Math.max(0, currentLine - getLinesPerPage());
+        if (currentLine === newLine) return;
+
+        // 临时切换到新行计算新页文本
+        var oldLine = currentLine;
+        currentLine = newLine;
+        pageTurnText.text = getPageText();
+        currentLine = oldLine;
+
+        // 设置覆盖层从左侧滑入
+        turnDirection = -1;
+        turnShadow.anchors.left = undefined;
+        turnShadow.anchors.right = turnShadow.parent.right;
+        turnShadow.color = Qt.rgba(0, 0, 0, 0);
+        pageTurnOverlay.x = -readerPage.width;
+        pageTurnOverlay.visible = true;
+        animating = true;
+        pendingLine = newLine;
+
+        pageSlideAnim.from = -readerPage.width;
+        pageSlideAnim.to = 0;
+        pageSlideAnim.start();
+
+        Storage.updateProgressMemory(progressStore, currentUrl, fileName, newLine, lines.length);
+        flushDebounceTimer.restart();
     }
 
     function jumpToPercent(percent) {
@@ -1029,7 +1114,9 @@ Rectangle {
         id: readerPage
         anchors.fill: parent
         visible: currentUrl !== ""
+        clip: true
 
+        // 当前页文本
         Text {
             id: contentText
             anchors.left: parent.left
@@ -1050,10 +1137,86 @@ Rectangle {
             clip: true
         }
 
+        // 翻页覆盖层（新页从右侧/左侧滑入覆盖旧页）
+        Rectangle {
+            id: pageTurnOverlay
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: parent.width
+            color: bgColor
+            visible: false
+            z: 5
+
+            // 翻页阴影（滑入边缘的渐变阴影）
+            Rectangle {
+                id: turnShadow
+                width: 8
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                visible: turnDirection !== 0
+                z: 6
+                // 阴影渐变，在 onStarted 中动态赋值
+            }
+            // 预定义两种方向的阴影渐变
+            Gradient {
+                id: shadowGradRight
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.15) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0) }
+            }
+            Gradient {
+                id: shadowGradLeft
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.15) }
+            }
+
+            Text {
+                id: pageTurnText
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: readerMargin
+                anchors.rightMargin: readerMargin
+                anchors.topMargin: readerMargin
+                anchors.bottomMargin: readerMargin
+                font.family: "Microsoft YaHei"
+                font.pixelSize: baseFontSize
+                lineHeightMode: Text.FixedHeight
+                lineHeight: getTextLineHeight()
+                color: textColor
+                wrapMode: Text.NoWrap
+                clip: true
+            }
+        }
+
+        // 翻页滑动动画
+        PropertyAnimation {
+            id: pageSlideAnim
+            target: pageTurnOverlay
+            property: "x"
+            duration: 200
+            easing.type: Easing.OutQuad
+            onStarted: {
+                // 动画开始时添加滑动边缘阴影
+                turnShadow.gradient = turnDirection > 0 ? shadowGradRight : shadowGradLeft;
+            }
+            onFinished: {
+                // 更新当前行，contentText 通过绑定自动刷新
+                currentLine = pendingLine;
+                pendingLine = -1;
+                // 重置覆盖层状态
+                pageTurnOverlay.visible = false;
+                pageTurnOverlay.x = 0;
+                turnShadow.gradient = null;
+                turnDirection = 0;
+                animating = false;
+            }
+        }
+
         MouseArea {
             id: pageTouch
             anchors.fill: parent
-            enabled: activePanel === "" && !isLoading
+            enabled: activePanel === "" && !isLoading && !animating
             property real startX: 0
             property real startY: 0
             property bool moved: false
