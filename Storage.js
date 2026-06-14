@@ -1,27 +1,16 @@
-// Storage.js - 文件持久化存储（主）+ SQLite（备）
+// Storage.js - 纯 JSON 文件持久化存储
 
 var BACKUP_PATH = "/userdisk/.novel-reader-state.json";
 var dataCache = null;   // 内存缓存 {key: value}
-var sqliteDb = null;    // SQLite 备选存储
+var flushPending = false;
 
 // ====== 初始化 ======
 
-function openDatabase() {
-    // 打开 SQLite 作为备选
-    try {
-        sqliteDb = Qt.openDatabaseSync("NovelReaderStateV2", "1.0", "Novel Reader State", 1000000);
-        sqliteDb.transaction(function (tx) {
-            tx.executeSql("CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY, value TEXT)");
-        });
-    } catch (e) {
-        sqliteDb = null;
-    }
-    // 从备份文件加载到内存缓存
+function initStorage() {
     loadFileCache();
-    return sqliteDb;
 }
 
-// ====== 文件读写（主存储） ======
+// ====== 文件读写 ======
 
 function loadFileCache() {
     dataCache = {};
@@ -51,59 +40,50 @@ function getShellCtrl() {
     return (typeof shellPluginController !== "undefined") ? shellPluginController : null;
 }
 
-// ====== 键值读写（缓存 + 文件 + SQLite 三重保障） ======
+// ====== 键值读写（内存缓存 + 文件持久化） ======
 
-function readState(db, key, fallbackValue) {
+function readState(key, fallbackValue) {
     if (dataCache === null) loadFileCache();
     return dataCache.hasOwnProperty(key) ? dataCache[key] : fallbackValue;
 }
 
-function writeState(db, key, value) {
+function writeState(key, value) {
     if (dataCache === null) loadFileCache();
     dataCache[key] = value;
-    // 写入备份文件
     flushToFile();
-    // 也写入 SQLite 作为备选
-    if (sqliteDb) {
-        try {
-            sqliteDb.transaction(function (tx) {
-                tx.executeSql("INSERT OR REPLACE INTO state(key, value) VALUES(?, ?)", [key, value]);
-            });
-        } catch (e) {}
-    }
     return true;
 }
 
-// ====== 进度/书签/设置 读写（保持 API 不变） ======
+// ====== 进度/书签/设置 读写 ======
 
-function loadProgressStore(db) {
+function loadProgressStore() {
     try {
-        return JSON.parse(readState(db, "progress", "{}")) || {};
+        return JSON.parse(readState("progress", "{}")) || {};
     } catch (e) {
         return {};
     }
 }
 
-function loadBookmarksStore(db) {
+function loadBookmarksStore() {
     try {
-        return JSON.parse(readState(db, "bookmarks", "{}")) || {};
+        return JSON.parse(readState("bookmarks", "{}")) || {};
     } catch (e) {
         return {};
     }
 }
 
-function loadSettingsFromStore(db) {
+function loadSettingsFromStore() {
     var settings = {};
     try {
-        settings = JSON.parse(readState(db, "settings", "{}")) || {};
+        settings = JSON.parse(readState("settings", "{}")) || {};
     } catch (e) {
         settings = {};
     }
     return settings;
 }
 
-function saveSettingsToStore(db, settings) {
-    writeState(db, "settings", JSON.stringify(settings));
+function saveSettingsToStore(settings) {
+    writeState("settings", JSON.stringify(settings));
 }
 
 function updateProgressMemory(progressStore, currentUrl, fileName, currentLine, totalLines) {
@@ -117,14 +97,8 @@ function updateProgressMemory(progressStore, currentUrl, fileName, currentLine, 
     };
 }
 
-function flushProgressToDB(db, progressStore) {
-    writeState(db, "progress", JSON.stringify(progressStore));
-}
-
-function saveProgressToStore(db, currentUrl, fileName, currentLine, lines, progressStore) {
-    if (currentUrl === "") return;
-    updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
-    writeState(db, "progress", JSON.stringify(progressStore));
+function flushProgressStore(progressStore) {
+    writeState("progress", JSON.stringify(progressStore));
 }
 
 function loadProgressFromStore(progressStore, url) {
@@ -132,8 +106,8 @@ function loadProgressFromStore(progressStore, url) {
     return item ? (parseInt(item.line) || 0) : 0;
 }
 
-function deleteRecord(db, currentUrl, progressStore) {
+function deleteRecord(currentUrl, progressStore) {
     if (currentUrl === "") return false;
     delete progressStore[currentUrl];
-    return writeState(db, "progress", JSON.stringify(progressStore));
+    return writeState("progress", JSON.stringify(progressStore));
 }

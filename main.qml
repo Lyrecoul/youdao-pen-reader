@@ -1,5 +1,4 @@
 import QtQuick 2.15
-import QtQuick.LocalStorage 2.0
 import "qrc:/qml/commons"
 import "Storage.js" as Storage
 import "ReaderUtils.js" as ReaderUtils
@@ -52,7 +51,6 @@ Rectangle {
     property string uploaderStatus: "上传服务未启动"
     property string uploaderAddress: ""
     property string uploaderOutput: ""
-    property var db: null
     property bool showSponsor: false
     property int sponsorQrIndex: 0
     property bool showTutorial: false
@@ -91,26 +89,22 @@ Rectangle {
         onTriggered: refreshUploaderOutput()
     }
 
-    // 防抖写入定时器：翻页停止 1.5 秒后将进度写入数据库
+    // 防抖写入定时器：翻页停止 1.5 秒后将进度写入文件
     Timer {
         id: flushDebounceTimer
         interval: 1500
         repeat: false
-        onTriggered: Storage.flushProgressToDB(db, progressStore)
-    }
-
-    // 定期持久化保存定时器（每2分钟），兜底确保数据写入
-    Timer {
-        id: persistTimer
-        interval: 120000
-        repeat: true
-        running: true
-        onTriggered: persistState()
+        onTriggered: Storage.flushProgressStore(progressStore)
     }
 
     Component.onCompleted: {
-        initDatabase();
+        Storage.initStorage();
         uploaderStartTimer.start();
+        loadSettings();
+        loadProgressStore();
+        loadBookmarksStore();
+        startBookFolderScan();
+        loadBookList();
         var everOpened = readState("everOpened", "");
         if (everOpened === "") {
             writeState("everOpened", "1");
@@ -120,23 +114,9 @@ Rectangle {
     }
 
     Component.onDestruction: {
-        flushProgress();
-        saveSettings();
-    }
-
-    function initDatabase() {
-        db = Storage.openDatabase();
-        loadSettings();
-        loadProgressStore();
-        loadBookmarksStore();
-        startBookFolderScan();
-        loadBookList();
-    }
-
-    // 定期将所有状态写入 SQLite 数据库
-    function persistState() {
         if (currentUrl !== "") {
-            Storage.flushProgressToDB(db, progressStore);
+            Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
+            Storage.flushProgressStore(progressStore);
         }
         saveSettings();
     }
@@ -200,32 +180,32 @@ Rectangle {
     }
 
     function readState(key, fallbackValue) {
-        return Storage.readState(db, key, fallbackValue);
+        return Storage.readState(key, fallbackValue);
     }
 
     function writeState(key, value) {
-        return Storage.writeState(db, key, value);
+        return Storage.writeState(key, value);
     }
 
     function loadProgressStore() {
-        progressStore = Storage.loadProgressStore(db);
+        progressStore = Storage.loadProgressStore();
     }
 
     function loadBookmarksStore() {
-        bookmarksStore = Storage.loadBookmarksStore(db);
+        bookmarksStore = Storage.loadBookmarksStore();
     }
 
-    // 翻页时只更新内存，不写数据库（由防抖定时器批量写入）
+    // 翻页时只更新内存，由防抖定时器批量写入文件
     function saveProgress() {
         Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
         flushDebounceTimer.restart();
     }
 
-    // 立即将进度写入数据库（关键操作时调用）
+    // 立即将进度写入文件（关键操作时调用）
     function flushProgress() {
         if (currentUrl === "") return;
         Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
-        Storage.flushProgressToDB(db, progressStore);
+        Storage.flushProgressStore(progressStore);
         flushDebounceTimer.stop();
     }
 
@@ -243,11 +223,11 @@ Rectangle {
             lastFile: lastFilePath,
             autoScrollSeconds: autoScrollSeconds
         };
-        Storage.saveSettingsToStore(db, settings);
+        Storage.saveSettingsToStore(settings);
     }
 
     function loadSettings() {
-        var settings = Storage.loadSettingsFromStore(db);
+        var settings = Storage.loadSettingsFromStore();
         baseFontSize = parseInt(settings.fontSize) || 14;
         lineSpacing = parseInt(settings.lineSpacing) || 4;
         bgColor = settings.bgColor || "#FFFBF0";
@@ -346,9 +326,9 @@ Rectangle {
     }
 
     function deleteCurrentRecord() {
-        if (!db || currentUrl === "")
+        if (currentUrl === "")
             return;
-        if (Storage.deleteRecord(db, currentUrl, progressStore)) {
+        if (Storage.deleteRecord(currentUrl, progressStore)) {
             statusMessage = "记录已删除";
             messageTimer.restart();
             loadBookList();
