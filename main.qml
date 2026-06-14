@@ -87,6 +87,23 @@ Rectangle {
         onTriggered: refreshUploaderOutput()
     }
 
+    // 防抖写入定时器：翻页停止 1.5 秒后将进度写入数据库
+    Timer {
+        id: flushDebounceTimer
+        interval: 1500
+        repeat: false
+        onTriggered: Storage.flushProgressToDB(db, progressStore)
+    }
+
+    // 定期持久化保存定时器（每2分钟），兜底确保数据写入
+    Timer {
+        id: persistTimer
+        interval: 120000
+        repeat: true
+        running: true
+        onTriggered: persistState()
+    }
+
     Component.onCompleted: {
         initDatabase();
         uploaderStartTimer.start();
@@ -99,7 +116,7 @@ Rectangle {
     }
 
     Component.onDestruction: {
-        saveProgress();
+        flushProgress();
         saveSettings();
     }
 
@@ -110,6 +127,14 @@ Rectangle {
         loadBookmarksStore();
         startBookFolderScan();
         loadBookList();
+    }
+
+    // 定期将所有状态写入 SQLite 数据库
+    function persistState() {
+        if (currentUrl !== "") {
+            Storage.flushProgressToDB(db, progressStore);
+        }
+        saveSettings();
     }
 
     function startUploaderService() {
@@ -186,8 +211,18 @@ Rectangle {
         bookmarksStore = Storage.loadBookmarksStore(db);
     }
 
+    // 翻页时只更新内存，不写数据库（由防抖定时器批量写入）
     function saveProgress() {
-        Storage.saveProgressToStore(db, currentUrl, fileName, currentLine, lines, progressStore);
+        Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
+        flushDebounceTimer.restart();
+    }
+
+    // 立即将进度写入数据库（关键操作时调用）
+    function flushProgress() {
+        if (currentUrl === "") return;
+        Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
+        Storage.flushProgressToDB(db, progressStore);
+        flushDebounceTimer.stop();
     }
 
     function loadProgress(url) {
@@ -470,7 +505,7 @@ Rectangle {
 
         // 先保存当前书籍的阅读进度，避免切换书籍时丢失
         if (currentUrl !== "" && currentUrl !== url) {
-            saveProgress();
+            flushProgress();
         }
 
         if (xhr && xhr.readyState === XMLHttpRequest.LOADING) {
@@ -1091,9 +1126,9 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 22
+                height: 32
                 Text {
-                    width: parent.width - 28
+                    width: parent.width - 38
                     text: fileName
                     font.pixelSize: 12
                     font.bold: true
@@ -1103,14 +1138,14 @@ Rectangle {
                     font.family: "Microsoft YaHei"
                 }
                 Rectangle {
-                    width: 22
-                    height: 22
-                    radius: 11
+                    width: 32
+                    height: 32
+                    radius: 16
                     color: "#DDDDDD"
                     Text {
                         anchors.centerIn: parent
                         text: "x"
-                        font.pixelSize: 13
+                        font.pixelSize: 15
                         color: "#333"
                         font.family: "Microsoft YaHei"
                     }
@@ -1378,19 +1413,20 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 20
+                height: 32
                 Text {
-                    width: parent.width - 28
+                    width: parent.width - 38
                     text: "跳转到"
                     font.pixelSize: 13
                     font.bold: true
                     color: textColor
+                    verticalAlignment: Text.AlignVCenter
                     font.family: "Microsoft YaHei"
                 }
                 MenuButton {
                     label: "x"
-                    w: 22
-                    h: 20
+                    w: 32
+                    h: 32
                     onClicked: closePanels()
                 }
             }
@@ -1532,19 +1568,20 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 22
+                height: 32
                 Text {
-                    width: parent.width - 28
+                    width: parent.width - 38
                     text: "书签 (" + bookmarkList.length + ")"
                     font.pixelSize: 13
                     font.bold: true
                     color: textColor
+                    verticalAlignment: Text.AlignVCenter
                     font.family: "Microsoft YaHei"
                 }
                 MenuButton {
                     label: "x"
-                    w: 22
-                    h: 22
+                    w: 32
+                    h: 32
                     onClicked: closePanels()
                 }
             }
