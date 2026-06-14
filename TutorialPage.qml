@@ -42,7 +42,7 @@ Rectangle {
             Text {
                 width: parent.width - 58 - 6
                 height: 24
-                text: "使用教程 (" + (pageLines.length > 0 ? Math.floor(pageLine / 8) + 1 + "/" + Math.ceil(pageLines.length / 8) : "1/1") + ")"
+                text: "使用教程（请上下滑动阅读）"
                 font.pixelSize: 12
                 font.bold: true
                 color: "#333333"
@@ -52,54 +52,25 @@ Rectangle {
             }
         }
 
-        Text {
+        // 可滚动内容区域，替代硬编码分页
+        Flickable {
             width: parent.width
             height: parent.height - 28
-            text: {
-                var start = pageLine;
-                var end = Math.min(start + 8, pageLines.length);
-                var page = [];
-                for (var i = start; i < end; i++)
-                    page.push(pageLines[i]);
-                return page.join("\n");
-            }
-            font.pixelSize: 12
-            color: "#333333"
-            lineHeight: 1.5
-            wrapMode: Text.WordWrap
+            contentWidth: width
+            contentHeight: contentText.height
             clip: true
-            font.family: "Microsoft YaHei"
-        }
-    }
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
-    MouseArea {
-        anchors.fill: parent
-        anchors.topMargin: 28
-        property real startX: 0
-        property real startY: 0
-        property bool moved: false
-
-        onPressed: {
-            startX = mouseX;
-            startY = mouseY;
-            moved = false;
-        }
-        onPositionChanged: {
-            if (Math.abs(mouseX - startX) > 10 || Math.abs(mouseY - startY) > 10)
-                moved = true;
-        }
-        onReleased: {
-            if (moved) {
-                var dy = mouseY - startY;
-                if (dy < -10 && pageLine + 8 < pageLines.length)
-                    pageLine += 8;
-                else if (dy > 10 && pageLine >= 8)
-                    pageLine -= 8;
-            } else {
-                if (mouseX > width / 2 && pageLine + 8 < pageLines.length)
-                    pageLine += 8;
-                else if (mouseX <= width / 2 && pageLine >= 8)
-                    pageLine -= 8;
+            Text {
+                id: contentText
+                width: parent.width
+                text: pageLines.join("\n")
+                font.pixelSize: 12
+                color: "#333333"
+                lineHeight: 1.5
+                wrapMode: Text.WordWrap
+                font.family: "Microsoft YaHei"
             }
         }
     }

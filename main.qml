@@ -31,12 +31,75 @@ Rectangle {
     property bool autoScroll: false
     property int autoScrollSeconds: 2
     property bool animating: false
-    // 翻页动画方向：1=下一页（右滑入），-1=上一页（左滑入）
     property int turnDirection: 0
     property int pendingLine: -1
 
+    // ====== 页面管理器 ======
+    property var pageStack: ["home"]       // 导航历史栈
+    property string pageMode: "home"       // 当前页面: home | shelf | reader
+    property bool isTransitioning: false   // 过渡动画进行中
+    property string prevPageMode: "home"   // 上一页面（用于反向动画）
+
+    // 统一页面导航（自动判断是否需要动画）
+    function navigateTo(page, direction) {
+        if (isTransitioning || page === pageMode)
+            return;
+        if (page === "reader" && currentUrl === "")
+            return;
+        var from = pageItem(pageMode);
+        var to = pageItem(page);
+        prevPageMode = pageMode;
+        pageStack.push(page);
+        pageMode = page;
+        isTransitioning = true;
+        startPageTransition(prevPageMode, page, direction || 1);
+    }
+
+    // 返回上一页
+    function navigateBack() {
+        if (isTransitioning || pageStack.length <= 1)
+            return;
+        pageStack.pop();
+        var from = pageItem(pageMode);
+        prevPageMode = pageMode;
+        var prev = pageStack[pageStack.length - 1];
+        var to = pageItem(prev);
+        pageMode = prev;
+        if (from === to)
+            return;
+        isTransitioning = true;
+        startPageTransition(prevPageMode, prev, -1);
+    }
+
+    // 回到栈底（首页），跳过相同物理页
+    function navigateRoot() {
+        if (isTransitioning)
+            return;
+        var rootPage = pageStack[0];
+        var from = pageItem(pageMode);
+        var to = pageItem(rootPage);
+        while (pageStack.length > 1)
+            pageStack.pop();
+        prevPageMode = pageMode;
+        pageMode = rootPage;
+        if (from === to)
+            return;
+        isTransitioning = true;
+        startPageTransition(prevPageMode, rootPage, -1);
+    }
+
+    // 获取页面 Item 引用
+    function pageItem(mode) {
+        if (mode === "home")
+            return homePage;
+        if (mode === "shelf")
+            return shelfPage;
+        if (mode === "reader")
+            return readerPage;
+        return null;
+    }
+
     property string activePanel: ""
-    property string homeMode: "home"
     property bool keyboardPending: false
     property real pendingProgressRatio: -1
     property var bookList: []
@@ -70,7 +133,7 @@ Rectangle {
         id: autoScrollTimer
         interval: Math.max(1, autoScrollSeconds) * 1000
         repeat: true
-        running: autoScroll && currentUrl !== "" && activePanel === ""
+        running: autoScroll && pageMode === "reader" && activePanel === ""
         onTriggered: nextPage()
     }
 
@@ -95,6 +158,95 @@ Rectangle {
         interval: 1500
         repeat: false
         onTriggered: Storage.flushProgressStore(progressStore)
+    }
+
+    // ====== 页面过渡动画 ======
+    // 用于主页/书架/阅读器之间的滑动切换
+    ParallelAnimation {
+        id: pageTransitionAnim
+        property Item fromItem: null
+        property Item toItem: null
+        property int direction: 1  // 1=前进(左滑), -1=后退(右滑)
+
+        NumberAnimation {
+            target: pageTransitionAnim.fromItem
+            property: "x"
+            from: 0
+            to: 0
+            duration: 260
+            easing.type: Easing.InOutCubic
+        }
+        NumberAnimation {
+            target: pageTransitionAnim.fromItem
+            property: "opacity"
+            from: 1
+            to: 0
+            duration: 220
+        }
+        NumberAnimation {
+            target: pageTransitionAnim.toItem
+            property: "x"
+            from: 0
+            to: 0
+            duration: 260
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: pageTransitionAnim.toItem
+            property: "opacity"
+            from: 0
+            to: 1
+            duration: 220
+        }
+
+        onStarted: {
+            if (!fromItem || !toItem) {
+                isTransitioning = false;
+                stop();
+                return;
+            }
+            // 设置起始位置
+            fromItem.x = 0;
+            fromItem.opacity = 1;
+            fromItem.visible = true;
+            toItem.visible = true;
+
+            var d = pageTransitionAnim.direction;
+            pageTransitionAnim.toItem.x = d * fromItem.width;
+
+            // 目标位置
+            pageTransitionAnim.fromItem.x = -d * fromItem.width * 0.3;
+            pageTransitionAnim.toItem.x = 0;
+        }
+
+        onFinished: {
+            if (fromItem) {
+                fromItem.visible = false;
+                fromItem.x = 0;
+            }
+            if (toItem) {
+                toItem.opacity = 1;
+                toItem.x = 0;
+            }
+            isTransitioning = false;
+        }
+    }
+
+    function startPageTransition(fromMode, toMode, dir) {
+        var from = pageItem(fromMode);
+        var to = pageItem(toMode);
+        if (!from || !to) {
+            if (from)
+                from.visible = false;
+            if (to)
+                to.visible = true;
+            isTransitioning = false;
+            return;
+        }
+        pageTransitionAnim.fromItem = from;
+        pageTransitionAnim.toItem = to;
+        pageTransitionAnim.direction = dir;
+        pageTransitionAnim.restart();
     }
 
     Component.onCompleted: {
@@ -149,12 +301,12 @@ Rectangle {
     }
 
     function openShelf() {
-        homeMode = "shelf";
+        navigateTo("shelf");
         loadBookList();
     }
 
     function closeShelf() {
-        homeMode = "home";
+        navigateBack();
     }
 
     function openTutorial() {
@@ -203,7 +355,8 @@ Rectangle {
 
     // 立即将进度写入文件（关键操作时调用）
     function flushProgress() {
-        if (currentUrl === "") return;
+        if (currentUrl === "")
+            return;
         Storage.updateProgressMemory(progressStore, currentUrl, fileName, currentLine, lines.length);
         Storage.flushProgressStore(progressStore);
         flushDebounceTimer.stop();
@@ -416,9 +569,9 @@ Rectangle {
     }
 
     function openPanel(name) {
-        activePanel = name;
         if (name === "bookmarks")
             loadBookmarkList();
+        activePanel = name;
     }
 
     function returnToShelf() {
@@ -451,7 +604,6 @@ Rectangle {
 
         autoScroll = false;
         closePanels();
-        homeMode = "shelf";
         currentUrl = "";
         fileName = "";
         lines = [];
@@ -459,6 +611,9 @@ Rectangle {
         bookmarkList = [];
         currentLine = 0;
 
+        // 导航到书架
+        navigateRoot();
+        navigateTo("shelf");
         loadBookList();
     }
 
@@ -492,7 +647,6 @@ Rectangle {
 
         autoScroll = false;
         closePanels();
-        homeMode = "home";
         currentUrl = "";
         fileName = "";
         lines = [];
@@ -500,6 +654,7 @@ Rectangle {
         bookmarkList = [];
         currentLine = 0;
 
+        navigateRoot();
         loadBookList();
     }
 
@@ -528,11 +683,19 @@ Rectangle {
         }
 
         closePanels();
-        isLoading = true;
-        statusMessage = "";
+
+        // 先设置 currentUrl，再导航到阅读器（navigateTo 依赖它）
         currentUrl = url;
         fileName = bookTitle(url);
         lastFilePath = url;
+
+        // 导航到阅读器页面
+        if (pageMode !== "reader") {
+            navigateTo("reader");
+        }
+
+        isLoading = true;
+        statusMessage = "";
 
         var encodedUrl = encodePath(url);
         doLoadFile(url, encodedUrl);
@@ -596,7 +759,8 @@ Rectangle {
     }
 
     function nextPage() {
-        if (animating) return;
+        if (animating)
+            return;
         var maxLine = maxStartLine();
         if (currentLine >= maxLine) {
             autoScroll = false;
@@ -604,7 +768,8 @@ Rectangle {
         }
 
         var newLine = Math.min(currentLine + getLinesPerPage(), maxLine);
-        if (currentLine === newLine) return;
+        if (currentLine === newLine)
+            return;
 
         // 临时切换到新行计算新页文本，再恢复以保持 contentText 不变
         var oldLine = currentLine;
@@ -632,11 +797,14 @@ Rectangle {
     }
 
     function prevPage() {
-        if (animating) return;
-        if (currentLine <= 0) return;
+        if (animating)
+            return;
+        if (currentLine <= 0)
+            return;
 
         var newLine = Math.max(0, currentLine - getLinesPerPage());
-        if (currentLine === newLine) return;
+        if (currentLine === newLine)
+            return;
 
         // 临时切换到新行计算新页文本
         var oldLine = currentLine;
@@ -802,13 +970,13 @@ Rectangle {
     Item {
         id: homePage
         anchors.fill: parent
-        visible: currentUrl === ""
+        visible: pageMode === "home"
 
         Column {
             anchors.fill: parent
             anchors.margins: 6
             spacing: 4
-            visible: homeMode === "home"
+            visible: pageMode === "home"
 
             Text {
                 width: parent.width
@@ -958,133 +1126,134 @@ Rectangle {
                 }
             }
         }
+    }
 
-        Item {
+    Item {
+        id: shelfPage
+        anchors.fill: parent
+        visible: pageMode === "shelf"
+
+        Column {
             anchors.fill: parent
-            visible: homeMode === "shelf"
+            anchors.margins: 6
+            spacing: 4
 
-            Column {
-                anchors.fill: parent
-                anchors.margins: 6
-                spacing: 4
+            Row {
+                width: parent.width
+                height: 24
+                spacing: 6
 
-                Row {
-                    width: parent.width
+                Rectangle {
+                    width: 58
                     height: 24
-                    spacing: 6
-
-                    Rectangle {
-                        width: 58
-                        height: 24
-                        radius: 4
-                        color: "#DDDDDD"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "返回"
-                            font.pixelSize: 11
-                            color: "#333333"
-                            font.family: "Microsoft YaHei"
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: closeShelf()
-                        }
-                    }
-
+                    radius: 4
+                    color: "#DDDDDD"
                     Text {
-                        width: parent.width - 64 - 52
-                        height: 24
-                        text: "我的书架 (" + bookList.length + ")"
-                        font.pixelSize: 14
-                        font.bold: true
-                        color: textColor
-                        verticalAlignment: Text.AlignVCenter
-                        horizontalAlignment: Text.AlignHCenter
+                        anchors.centerIn: parent
+                        text: "返回"
+                        font.pixelSize: 11
+                        color: "#333333"
                         font.family: "Microsoft YaHei"
                     }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: closeShelf()
+                    }
+                }
 
-                    Rectangle {
-                        width: 52
-                        height: 24
-                        radius: 4
-                        color: "#E3F2FD"
-                        border.color: "#BBDEFB"
+                Text {
+                    width: parent.width - 64 - 52
+                    height: 24
+                    text: "我的书架 (" + bookList.length + ")"
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: textColor
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    font.family: "Microsoft YaHei"
+                }
+
+                Rectangle {
+                    width: 52
+                    height: 24
+                    radius: 4
+                    color: "#E3F2FD"
+                    border.color: "#BBDEFB"
+                    Text {
+                        anchors.centerIn: parent
+                        text: "教程"
+                        font.pixelSize: 11
+                        color: "#1565C0"
+                        font.family: "Microsoft YaHei"
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: openTutorial()
+                    }
+                }
+            }
+
+            ListView {
+                width: parent.width
+                height: parent.height - 28
+                clip: true
+                spacing: 3
+                model: bookList
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    width: parent.width
+                    height: 24
+                    radius: 3
+                    color: bookMouse.pressed ? "#E0D8C8" : "#F8F4EC"
+                    border.color: "#E0D8C8"
+
+                    MouseArea {
+                        id: bookMouse
+                        anchors.fill: parent
+                        z: 0
+                        onClicked: {
+                            isLoading = true;
+                            statusMessage = "";
+                            loadFile(modelData.file);
+                        }
+                    }
+
+                    Row {
+                        z: 1
+                        anchors.fill: parent
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
+                        spacing: 4
+
                         Text {
-                            anchors.centerIn: parent
-                            text: "教程"
+                            width: parent.width - 60
+                            text: modelData.name
                             font.pixelSize: 11
-                            color: "#1565C0"
+                            color: "#333"
+                            elide: Text.ElideMiddle
+                            anchors.verticalCenter: parent.verticalCenter
                             font.family: "Microsoft YaHei"
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: openTutorial()
+                        Text {
+                            text: modelData.progress + "%"
+                            font.pixelSize: 9
+                            color: "#888"
+                            anchors.verticalCenter: parent.verticalCenter
+                            font.family: "Microsoft YaHei"
                         }
                     }
                 }
 
-                ListView {
-                    width: parent.width
-                    height: parent.height - 28
-                    clip: true
-                    spacing: 3
-                    model: bookList
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    delegate: Rectangle {
-                        width: parent.width
-                        height: 24
-                        radius: 3
-                        color: bookMouse.pressed ? "#E0D8C8" : "#F8F4EC"
-                        border.color: "#E0D8C8"
-
-                        MouseArea {
-                            id: bookMouse
-                            anchors.fill: parent
-                            z: 0
-                            onClicked: {
-                                isLoading = true;
-                                statusMessage = "";
-                                loadFile(modelData.file);
-                            }
-                        }
-
-                        Row {
-                            z: 1
-                            anchors.fill: parent
-                            anchors.leftMargin: 6
-                            anchors.rightMargin: 6
-                            spacing: 4
-
-                            Text {
-                                width: parent.width - 60
-                                text: modelData.name
-                                font.pixelSize: 11
-                                color: "#333"
-                                elide: Text.ElideMiddle
-                                anchors.verticalCenter: parent.verticalCenter
-                                font.family: "Microsoft YaHei"
-                            }
-                            Text {
-                                text: modelData.progress + "%"
-                                font.pixelSize: 9
-                                color: "#888"
-                                anchors.verticalCenter: parent.verticalCenter
-                                font.family: "Microsoft YaHei"
-                            }
-                        }
-                    }
-
-                    Text {
-                        anchors.centerIn: parent
-                        visible: bookList.length === 0
-                        text: "暂无小说\n请将 txt 放到 /userdisk/Music/"
-                        font.pixelSize: 11
-                        color: textColor
-                        opacity: 0.5
-                        horizontalAlignment: Text.AlignHCenter
-                        font.family: "Microsoft YaHei"
-                    }
+                Text {
+                    anchors.centerIn: parent
+                    visible: bookList.length === 0
+                    text: "暂无小说\n请将 txt 放到 /userdisk/Music/"
+                    font.pixelSize: 11
+                    color: textColor
+                    opacity: 0.5
+                    horizontalAlignment: Text.AlignHCenter
+                    font.family: "Microsoft YaHei"
                 }
             }
         }
@@ -1093,7 +1262,7 @@ Rectangle {
     Item {
         id: readerPage
         anchors.fill: parent
-        visible: currentUrl !== ""
+        visible: pageMode === "reader"
         clip: true
 
         // 当前页文本
@@ -1140,13 +1309,25 @@ Rectangle {
             // 预定义两种方向的阴影渐变
             Gradient {
                 id: shadowGradRight
-                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.15) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0) }
+                GradientStop {
+                    position: 0.0
+                    color: Qt.rgba(0, 0, 0, 0.15)
+                }
+                GradientStop {
+                    position: 1.0
+                    color: Qt.rgba(0, 0, 0, 0)
+                }
             }
             Gradient {
                 id: shadowGradLeft
-                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.15) }
+                GradientStop {
+                    position: 0.0
+                    color: Qt.rgba(0, 0, 0, 0)
+                }
+                GradientStop {
+                    position: 1.0
+                    color: Qt.rgba(0, 0, 0, 0.15)
+                }
             }
 
             Text {
@@ -1254,13 +1435,27 @@ Rectangle {
 
     Rectangle {
         id: menuPanel
-        visible: activePanel === "menu" && currentUrl !== ""
+        visible: activePanel === "menu" || menuPanel.opacity > 0.01
+        opacity: activePanel === "menu" ? 1 : 0
+        scale: 1
         anchors.fill: parent
         anchors.margins: 8
         radius: 6
         color: bgColor === "#263238" ? "#37474F" : "#FFFFFF"
         border.color: "#CCCCCC"
         z: 40
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutBack
+            }
+        }
 
         Column {
             anchors.fill: parent
@@ -1269,9 +1464,9 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 32
+                height: 24
                 Text {
-                    width: parent.width - 38
+                    width: parent.width - 30
                     text: fileName
                     font.pixelSize: 12
                     font.bold: true
@@ -1281,14 +1476,14 @@ Rectangle {
                     font.family: "Microsoft YaHei"
                 }
                 Rectangle {
-                    width: 32
-                    height: 32
-                    radius: 16
+                    width: 24
+                    height: 24
+                    radius: 12
                     color: "#DDDDDD"
                     Text {
                         anchors.centerIn: parent
                         text: "x"
-                        font.pixelSize: 15
+                        font.pixelSize: 12
                         color: "#333"
                         font.family: "Microsoft YaHei"
                     }
@@ -1537,20 +1732,38 @@ Rectangle {
                     }
 
                     // 底部边距
-                    Item { width: parent.width; height: 10 }
+                    Item {
+                        width: parent.width
+                        height: 10
+                    }
                 }
             }
         }
     }
 
     Rectangle {
-        visible: activePanel === "jump"
+        id: jumpPanel
+        visible: activePanel === "jump" || jumpPanel.opacity > 0.01
+        opacity: activePanel === "jump" ? 1 : 0
+        scale: 1
         anchors.fill: parent
         anchors.margins: 10
         radius: 6
         color: bgColor === "#263238" ? "#37474F" : "#FFFFFF"
         border.color: "#CCCCCC"
         z: 50
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutBack
+            }
+        }
 
         Column {
             anchors.fill: parent
@@ -1559,11 +1772,11 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 32
+                height: 24
                 Text {
-                    width: parent.width - 38
+                    width: parent.width - 30
                     text: "跳转到"
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     font.bold: true
                     color: textColor
                     verticalAlignment: Text.AlignVCenter
@@ -1571,8 +1784,8 @@ Rectangle {
                 }
                 MenuButton {
                     label: "x"
-                    w: 32
-                    h: 32
+                    w: 24
+                    h: 24
                     onClicked: closePanels()
                 }
             }
@@ -1699,13 +1912,28 @@ Rectangle {
     }
 
     Rectangle {
-        visible: activePanel === "bookmarks"
+        id: bookmarkPanel
+        visible: activePanel === "bookmarks" || bookmarkPanel.opacity > 0.01
+        opacity: activePanel === "bookmarks" ? 1 : 0
+        scale: 1
         anchors.fill: parent
         anchors.margins: 10
         radius: 6
         color: bgColor === "#263238" ? "#37474F" : "#FFFFFF"
         border.color: "#CCCCCC"
         z: 50
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutBack
+            }
+        }
 
         Column {
             anchors.fill: parent
@@ -1714,11 +1942,11 @@ Rectangle {
 
             Row {
                 width: parent.width
-                height: 32
+                height: 24
                 Text {
-                    width: parent.width - 38
+                    width: parent.width - 30
                     text: "书签 (" + bookmarkList.length + ")"
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     font.bold: true
                     color: textColor
                     verticalAlignment: Text.AlignVCenter
@@ -1726,8 +1954,8 @@ Rectangle {
                 }
                 MenuButton {
                     label: "x"
-                    w: 32
-                    h: 32
+                    w: 24
+                    h: 24
                     onClicked: closePanels()
                 }
             }
@@ -1826,13 +2054,28 @@ Rectangle {
     }
 
     Rectangle {
-        visible: activePanel === "auto"
+        id: autoPanel
+        visible: activePanel === "auto" || autoPanel.opacity > 0.01
+        opacity: activePanel === "auto" ? 1 : 0
+        scale: 1
         anchors.fill: parent
         anchors.margins: 25
         radius: 6
         color: bgColor === "#263238" ? "#37474F" : "#FFFFFF"
         border.color: "#CCCCCC"
         z: 50
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutBack
+            }
+        }
 
         Column {
             anchors.centerIn: parent
